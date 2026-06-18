@@ -55,6 +55,35 @@ services:
       # - ./mysql/conf.d/logging.cnf:/etc/mysql/conf.d/logging.cnf
       # - ./logs/mysql:/var/log/mysql
       - ./mysql/init:/docker-entrypoint-initdb.d
+  mongo:
+    image: mongo:7
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
+    volumes:
+      - data_mongo:/data/db
+      - ./mongo/init:/docker-entrypoint-initdb.d
+      - ./mongo/conf/mongod.conf:/etc/mongo/mongod.conf
+      - ./mongo/logs:/var/log/mongodb
+    command: mongod --config /etc/mongo/mongod.conf
+    networks:
+      - examen_net
+    expose:
+      - "27017"
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   
   redis:
     image: redis:8.4-alpine
@@ -164,6 +193,7 @@ volumes:
   data_postgres:
   data_redis:
   data_mysql:
+  data_mongo:
 networks:
   examen_net:
     internal: false
