@@ -1,0 +1,169 @@
+services:
+  postgres:
+    image: postgres:16
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    
+    volumes:
+      - data_postgres:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+      - ./postgres/conf/postgresql.conf:/etc/postgres/postgresql.conf
+      - ./logs/postgres:/var/log/postgresql
+    networks:
+      - examen_net
+    command: postgres -c config_file=/etc/postgres/postgresql.conf
+    expose:
+      - "5432"
+    restart: always
+  mysql:
+    image: mysql:8
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    healthcheck:
+      test: ["CMD", "mysqladmin","ping","-h","localhost","-u","${MYSQL_USER}","-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - examen_net
+    expose:
+      - "3306"
+    restart: always
+    environment:
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+    volumes:
+      - data_mysql:/var/lib/mysql
+      # - ./mysql/conf.d/logging.cnf:/etc/mysql/conf.d/logging.cnf
+      # - ./logs/mysql:/var/log/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+  
+  redis:
+    image: redis:8.4-alpine
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli","ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - data_redis:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    networks:
+      - examen_net
+  backend-java:
+    build: ./backend-java
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    expose:
+      - "8080"
+    environment:
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - DB_USER=${MYSQL_USER}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    restart: always
+    networks:
+      - examen_net
+  backend-python:
+    build: ./backend-python
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    env_file:
+      - .env
+    expose:
+      - "8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - examen_net
+  backend-node:
+    build: ./backend-node
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    environment:
+      - DB_USER=${MYSQL_USER}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - examen_net
+    restart: always
+  frontend:
+    build: ./frontend
+    logging: 
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+    ports:
+      - "80:80"
+    networks:
+      - examen_net
+    depends_on:
+      backend-python:
+        condition: service_healthy
+      backend-java:
+        condition: service_healthy
+      backend-node:
+        condition: service_healthy
+    restart: always
+  
+volumes:
+  data_postgres:
+  data_redis:
+  data_mysql:
+networks:
+  examen_net:
+    internal: false
